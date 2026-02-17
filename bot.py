@@ -8,7 +8,9 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters, ConversationHandler
 )
 
-TOKEN = "ТВОЙ_ТОКЕН"
+import os
+
+TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_LINK = "https://t.me/dis_bis"
 CHANNEL_NAME = "MP Connect Pro"
 ADMIN_ID = 123456789  # <-- ВСТАВЬ СВОЙ ID
