@@ -28,44 +28,31 @@ STEP_PHOTO, STEP_TEXT, STEP_CONTACT, CONFIRM = range(4)
 
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Далее", callback_data="next")],
-        [InlineKeyboardButton("Связаться с администратором", url="https://t.me/dis_business_ru")]
-    ])
-
-
-def home_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Вернуться в начало", callback_data="home")]
-    ])
-
-
-def back_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Назад", callback_data="back")],
-        [InlineKeyboardButton("Вернуться в начало", callback_data="home")]
+        [InlineKeyboardButton("📝 Создать публикацию", callback_data="create")],
+        [InlineKeyboardButton("📩 Связаться с администратором", url="https://t.me/dis_business_ru")]
     ])
 
 
 def contact_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Использовать мое имя пользователя", callback_data="use_my_username")],
-        [InlineKeyboardButton("Назад", callback_data="back")],
-        [InlineKeyboardButton("Вернуться в начало", callback_data="home")]
+        [InlineKeyboardButton("👤 Использовать мое имя пользователя", callback_data="use_my_username")],
+        [InlineKeyboardButton("🏠 Вернуться в начало", callback_data="home")]
     ])
 
 
 def confirm_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Отправить публикацию", callback_data="send")],
-        [InlineKeyboardButton("Редактировать", callback_data="edit")]
+        [InlineKeyboardButton("🚀 Отправить публикацию", callback_data="send")],
+        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit")]
     ])
 
 
 def edit_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Изменить фотографию", callback_data="edit_photo")],
-        [InlineKeyboardButton("Изменить текст", callback_data="edit_text")],
-        [InlineKeyboardButton("Изменить ссылку", callback_data="edit_contact")]
+        [InlineKeyboardButton("🖼 Изменить фотографию", callback_data="edit_photo")],
+        [InlineKeyboardButton("📝 Изменить текст", callback_data="edit_text")],
+        [InlineKeyboardButton("🔗 Изменить ссылку", callback_data="edit_contact")],
+        [InlineKeyboardButton("🔙 Не изменять", callback_data="cancel_edit")]
     ])
 
 
@@ -97,11 +84,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Хочу предложить Вам БЕСПЛАТНОЕ размещение рекламы
 
-Вы ищете клиентов.
-Селлеры ищут сильных специалистов.
-
-Мы запускаем Telegram-канал MP Connect PRO — площадку, где собираются селлеры, поставщики, дизайнеры и менеджеры маркетплейсов.
-
 📌 Формируем сильную базу специалистов на старте проекта.
 
 Что вы получаете:
@@ -110,14 +92,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✅ Прямые заказы без посредников
 ✅ Возможность долгосрочного сотрудничества
 
-🧩 Это старт проекта, поэтому для первых специалистов условия такие:
+🧩 Условия запуска:
 
 ✔️ 1 публикация — <s>1000 ₽</s>
-✔️ Повторная публикация через 14 дней — <s>700 ₽</s>
+✔️ Повторная публикация — <s>700 ₽</s>
 
-🛍 Сейчас — <b>БЕСПЛАТНО</b> для первых участников запуска.
+🛍 Сейчас — <b>БЕСПЛАТНО</b>
 
-⭐️ Если предложение вас заинтересовало, отправьте свою публикацию👇
+⭐️ Нажмите кнопку ниже для создания публикации
 """
 
     await update.message.reply_text(
@@ -130,7 +112,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return STEP_PHOTO
 
 
-# ================= BUTTON HANDLER =================
+# ================= BUTTONS =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -140,34 +122,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "home":
         return await start(update, context)
 
-    if data == "next":
-        await query.message.reply_text(
-            "📷 Шаг 1: Загрузите одну фотографию",
-            reply_markup=home_keyboard()
-        )
+    if data == "create":
+        await query.message.reply_text("📷 Загрузите одну фотографию")
         return STEP_PHOTO
-
-    if data == "back":
-        previous = context.user_data.get("previous_step")
-
-        if previous == STEP_PHOTO:
-            await query.message.reply_text(
-                "📷 Шаг 1: Загрузите одну фотографию",
-                reply_markup=home_keyboard()
-            )
-            return STEP_PHOTO
-
-        if previous == STEP_TEXT:
-            await query.message.reply_text(
-                "✍️ Шаг 2: Отправьте текст публикации",
-                reply_markup=back_keyboard()
-            )
-            return STEP_TEXT
 
     if data == "use_my_username":
         username = update.effective_user.username
         if not username:
-            await query.message.reply_text("У вас не установлен username в Telegram.")
+            await query.message.reply_text("❌ У вас не установлен username в Telegram.")
             return STEP_CONTACT
 
         context.user_data["contact"] = f"https://t.me/{username}"
@@ -181,16 +143,22 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return CONFIRM
 
+    if data == "cancel_edit":
+        return await show_confirm(query.message, context)
+
     if data == "edit_photo":
-        await query.message.reply_text("Отправьте новую фотографию")
+        context.user_data["editing"] = "photo"
+        await query.message.reply_text("🖼 Отправьте новую фотографию")
         return STEP_PHOTO
 
     if data == "edit_text":
-        await query.message.reply_text("Отправьте новый текст")
+        context.user_data["editing"] = "text"
+        await query.message.reply_text("📝 Отправьте новый текст")
         return STEP_TEXT
 
     if data == "edit_contact":
-        await query.message.reply_text("Отправьте новый username")
+        context.user_data["editing"] = "contact"
+        await query.message.reply_text("🔗 Отправьте новый username")
         return STEP_CONTACT
 
     if data == "send":
@@ -202,13 +170,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=context.user_data["text"],
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Одобрить", callback_data=f"approve_{user_id}"),
-                    InlineKeyboardButton("Отклонить", callback_data=f"reject_{user_id}")
+                    InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{user_id}"),
+                    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")
                 ]
             ])
         )
 
-        await query.message.reply_text("🤝 Ваша публикация отправлена на модерацию, ожидайте подтверждения")
+        await query.message.reply_text("🤝 Публикация отправлена на модерацию")
         return ConversationHandler.END
 
     if data.startswith("approve_"):
@@ -216,21 +184,20 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_photo(
             chat_id=CHANNEL_USERNAME,
-            photo=context.user_data.get("photo"),
-            caption=context.user_data.get("text"),
+            photo=context.user_data["photo"],
+            caption=context.user_data["text"],
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("Связаться", url=context.user_data.get("contact")),
-                    InlineKeyboardButton("Разместить публикацию", url="https://t.me/dis_business_ru")
+                    InlineKeyboardButton("📩 Связаться", url=context.user_data["contact"]),
+                    InlineKeyboardButton("🚀 Разместить публикацию", url="https://t.me/dis_business_ru")
                 ]
             ])
         )
 
         await context.bot.send_message(
             chat_id=user_id,
-            text='✅ Благодарим за сотрудничество! Ваша публикация размещена в канале <a href="https://t.me/dis_bis">MP Connect Pro</a>. Уже ищем для Вас клиентов 🙃',
-            parse_mode="HTML",
-            disable_web_page_preview=True
+            text='✅ Ваша публикация размещена в канале <a href="https://t.me/dis_bis">MP Connect Pro</a> 🙃',
+            parse_mode="HTML"
         )
 
     if data.startswith("reject_"):
@@ -238,7 +205,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Ваша публикация не прошла модерацию, пожалуйста отправьте снова"
+            text="❌ Публикация не прошла модерацию, отправьте заново"
         )
 
     return ConversationHandler.END
@@ -248,32 +215,32 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
-        await update.message.reply_text("На этом шаге загрузите одну фотографию")
+        await update.message.reply_text("❗ Пожалуйста, загрузите фотографию")
         return STEP_PHOTO
 
     context.user_data["photo"] = update.message.photo[-1].file_id
-    context.user_data["previous_step"] = STEP_PHOTO
     context.user_data["user_id"] = update.effective_user.id
 
-    await update.message.reply_text(
-        "✍️ Шаг 2: Отправьте текст публикации",
-        reply_markup=back_keyboard()
-    )
+    if context.user_data.get("editing") == "photo":
+        context.user_data.pop("editing")
+        return await show_confirm(update.message, context)
+
+    await update.message.reply_text("📝 Отправьте текст публикации")
     return STEP_TEXT
 
 
 async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text:
-        await update.message.reply_text("На этом шаге отправьте текст публикации")
+        await update.message.reply_text("❗ Пожалуйста, отправьте текст")
         return STEP_TEXT
 
     context.user_data["text"] = update.message.text
-    context.user_data["previous_step"] = STEP_TEXT
 
-    await update.message.reply_text(
-        "🔗 Шаг 3: Отправьте username Telegram",
-        reply_markup=contact_keyboard()
-    )
+    if context.user_data.get("editing") == "text":
+        context.user_data.pop("editing")
+        return await show_confirm(update.message, context)
+
+    await update.message.reply_text("🔗 Отправьте username Telegram", reply_markup=contact_keyboard())
     return STEP_CONTACT
 
 
@@ -282,17 +249,22 @@ async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not link:
         await update.message.reply_text(
-            "Прошу прощения, не могу найти данный контакт в Телеграм, отправьте имя пользователя в формате ссылки или @username"
+            "❌ Отправьте username в формате @username или ссылкой"
         )
         return STEP_CONTACT
 
     context.user_data["contact"] = link
+
+    if context.user_data.get("editing") == "contact":
+        context.user_data.pop("editing")
+        return await show_confirm(update.message, context)
+
     return await show_confirm(update.message, context)
 
 
 async def show_confirm(message, context):
     await message.reply_text(
-        "✅ Готово, подтвердите, чтобы отправить рекламу на модерацию",
+        "✅ Готово. Подтвердите отправку:",
         reply_markup=confirm_keyboard()
     )
     return CONFIRM
