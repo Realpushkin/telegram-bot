@@ -1,167 +1,233 @@
-import asyncio
-import os
+import logging
 import re
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import Command
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters, ConversationHandler
+)
+
+TOKEN = "ТВОЙ_ТОКЕН"
+CHANNEL_LINK = "https://t.me/dis_bis"
+CHANNEL_NAME = "MP Connect Pro"
+ADMIN_ID = 123456789  # <-- ВСТАВЬ СВОЙ ID
+
+PHOTO, TEXT, CONTACT, CONFIRM = range(4)
+
+logging.basicConfig(level=logging.INFO)
 
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = "@dis_bis"
-ADMIN_ID = 8417362954
-BOT_USERNAME = "Kanal_mp_bot"
+# ======== START ========
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Далее", callback_data="next")],
+        [InlineKeyboardButton("Связаться с администратором", url="https://t.me/dis_business_ru")]
+    ]
+    text = f"""
+👋 Здравствуйте! Я бот канала {CHANNEL_NAME}
+{CHANNEL_LINK}
 
-# временное хранилище постов
-pending_posts = {}
+Хочу предложить Вам БЕСПЛАТНОЕ размещение рекламы
+
+Вы ищете клиентов.
+Селлеры ищут сильных специалистов.
+
+Мы запускаем Telegram-канал MP Connect PRO — площадку, где собираются селлеры, поставщики, дизайнеры, фулфилмент-компании и менеджеры маркетплейсов, и мы сводим их напрямую.
+
+📌 Формируем сильную базу специалистов на старте проекта.
+
+Что вы получаете:
+✅ Размещение рекламного поста
+✅ Выход на аудиторию селлеров
+✅ Прямые заказы
+✅ Возможность долгосрочного сотрудничества
+
+🛍 Сейчас - БЕСПЛАТНО для первых участников запуска.
+
+⭐️ Если предложение вас заинтересовало, отправьте свою публикацию👇
+"""
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return ConversationHandler.END
 
 
-# ================= START =================
+# ======== STEP 1 PHOTO ========
 
-@dp.message(Command("start"))
-async def start_handler(message: Message):
-    await message.answer("📸 Отправьте одну фотографию.")
-
-
-@dp.message(F.photo)
-async def get_photo(message: Message):
-    photo_id = message.photo[-1].file_id
-    pending_posts[message.from_user.id] = {
-        "photo": photo_id
-    }
-    await message.answer("✍ Теперь отправьте текст публикации.")
-
-
-@dp.message(F.text)
-async def get_text(message: Message):
-    user_id = message.from_user.id
-
-    if user_id not in pending_posts:
-        return
-
-    if "text" not in pending_posts[user_id]:
-        pending_posts[user_id]["text"] = message.text
-        await message.answer("📩 Теперь отправьте контакт (@username или ссылку).")
-        return
-
-    # если это контакт
-    contact_link = format_contact(message.text)
-    pending_posts[user_id]["contact"] = contact_link
-
-    post_data = pending_posts[user_id]
-
-    keyboard_admin = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Одобрить",
-                    callback_data=f"approve_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отклонить",
-                    callback_data=f"reject_{user_id}"
-                )
-            ]
-        ]
+async def step_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("Вернуться в начало", callback_data="start")]]
+    await update.callback_query.message.reply_text(
+        "📷 На этом шаге загрузите ОДНУ фотографию.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return PHOTO
 
-    await bot.send_photo(
-        ADMIN_ID,
-        photo=post_data["photo"],
-        caption=post_data["text"],
-        reply_markup=keyboard_admin
+
+async def receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.photo:
+        await update.message.reply_text("⚠ На этом шаге загрузите фотографию.")
+        return PHOTO
+
+    context.user_data["photo"] = update.message.photo[-1].file_id
+
+    keyboard = [
+        [InlineKeyboardButton("Назад", callback_data="back_photo")],
+        [InlineKeyboardButton("Вернуться в начало", callback_data="start")]
+    ]
+    await update.message.reply_text(
+        "✏ Теперь отправьте текст публикации.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+    return TEXT
 
-    await message.answer("✅ Публикация отправлена на модерацию.")
+
+# ======== STEP 2 TEXT ========
+
+async def receive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text:
+        await update.message.reply_text("⚠ На этом шаге отправьте текст публикации.")
+        return TEXT
+
+    context.user_data["text"] = update.message.text
+
+    keyboard = [
+        [InlineKeyboardButton("Использовать мое имя пользователя", callback_data="use_my_username")],
+        [InlineKeyboardButton("Назад", callback_data="back_text")],
+        [InlineKeyboardButton("Вернуться в начало", callback_data="start")]
+    ]
+
+    await update.message.reply_text(
+        "🔗 Отправьте имя пользователя Telegram (@username или ссылку).",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return CONTACT
 
 
-# ================= CONTACT FORMAT =================
+# ======== STEP 3 CONTACT ========
 
-def format_contact(text: str):
-    text = text.strip()
-
+def extract_username(text):
+    if text.startswith("@"):
+        return text[1:]
     if "t.me/" in text:
-        username = text.split("t.me/")[-1]
-    else:
-        username = text.replace("@", "")
-
-    username = re.sub(r"[^a-zA-Z0-9_]", "", username)
-    return f"https://t.me/{username}"
+        return text.split("t.me/")[1].split("?")[0]
+    return text.strip()
 
 
-# ================= APPROVE =================
+async def receive_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.text:
+        await update.message.reply_text("⚠ Отправьте имя пользователя Telegram.")
+        return CONTACT
 
-@dp.callback_query(F.data.startswith("approve_"))
-async def approve_post(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
+    username = extract_username(update.message.text)
 
-    if user_id not in pending_posts:
-        await callback.answer("Данные не найдены")
-        return
+    try:
+        chat = await context.bot.get_chat(username)
+        if not chat.username:
+            raise Exception("Нет username")
+    except:
+        await update.message.reply_text(
+            "❌ Прошу прощения, не могу найти данный контакт в Телеграм.\n"
+            "Отправьте имя пользователя в формате ссылки или @username"
+        )
+        return CONTACT
 
-    post_data = pending_posts[user_id]
+    context.user_data["contact"] = f"https://t.me/{username}"
 
-    keyboard_channel = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📞 Связаться",
-                    url=post_data["contact"]
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🚀 Разместить публикацию",
-                    url=f"https://t.me/{BOT_USERNAME}"
-                )
-            ]
+    return await show_confirm(update, context)
+
+
+# ======== CONFIRM SCREEN ========
+
+async def show_confirm(update, context):
+    keyboard = [
+        [InlineKeyboardButton("Отправить публикацию", callback_data="send")],
+        [InlineKeyboardButton("Редактировать", callback_data="edit")]
+    ]
+    await update.message.reply_text(
+        "✅ Готово, подтвердите, чтобы отправить рекламу на модерацию",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return CONFIRM
+
+
+# ======== SEND TO ADMIN ========
+
+async def send_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.callback_query.from_user
+    data = context.user_data
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Одобрить", callback_data=f"approve_{user.id}"),
+            InlineKeyboardButton("Отклонить", callback_data=f"reject_{user.id}")
         ]
+    ]
+
+    await context.bot.send_photo(
+        ADMIN_ID,
+        data["photo"],
+        caption=data["text"],
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    await bot.send_photo(
-        CHANNEL_ID,
-        photo=post_data["photo"],
-        caption=post_data["text"],
-        reply_markup=keyboard_channel
+    await update.callback_query.message.reply_text(
+        "🤝 Ваша публикация отправлена на модерацию, ожидайте подтверждения"
     )
 
-    await callback.message.edit_caption(
-        caption=post_data["text"] + "\n\n✅ Опубликовано"
-    )
-
-    del pending_posts[user_id]
-    await callback.answer("Опубликовано!")
+    return ConversationHandler.END
 
 
-# ================= REJECT =================
+# ======== ADMIN ACTION ========
 
-@dp.callback_query(F.data.startswith("reject_"))
-async def reject_post(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
+async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    action, user_id = query.data.split("_")
+    user_id = int(user_id)
 
-    if user_id in pending_posts:
-        del pending_posts[user_id]
+    if action == "approve":
+        data = context.user_data
+        await context.bot.send_photo(
+            chat_id="@dis_bis",
+            photo=data["photo"],
+            caption=data["text"],
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Связаться", url=data["contact"])],
+                [InlineKeyboardButton("Разместить публикацию", url="https://t.me/ТВОЙ_БОТ")]
+            ])
+        )
+        await context.bot.send_message(
+            user_id,
+            f"✅ Благодарим за сотрудничество.\n"
+            f"Ваша публикация размещена в канале {CHANNEL_NAME}.\n{CHANNEL_LINK}\n"
+            "Уже ищем для Вас клиентов 🙃"
+        )
 
-    await callback.message.edit_caption(
-        caption=callback.message.caption + "\n\n❌ Отклонено"
-    )
+    else:
+        await context.bot.send_message(
+            user_id,
+            "❌ Ваша публикация не прошла модерацию, пожалуйста отправьте снова"
+        )
 
-    await callback.answer("Отклонено.")
-
-
-# ================= RUN =================
-
-async def main():
-    await dp.start_polling(bot)
+    await query.answer()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# ======== MAIN ========
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+conv = ConversationHandler(
+    entry_points=[CallbackQueryHandler(step_photo, pattern="next")],
+    states={
+        PHOTO: [MessageHandler(filters.ALL, receive_photo)],
+        TEXT: [MessageHandler(filters.ALL, receive_text)],
+        CONTACT: [MessageHandler(filters.ALL, receive_contact)],
+        CONFIRM: [CallbackQueryHandler(send_to_admin, pattern="send")]
+    },
+    fallbacks=[]
+)
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(conv)
+app.add_handler(CallbackQueryHandler(admin_decision, pattern="approve_|reject_"))
+
+app.run_polling()
