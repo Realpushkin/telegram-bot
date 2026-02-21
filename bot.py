@@ -134,38 +134,17 @@ async def send_bot_message(chat_id, text, context, reply_markup=None, parse_mode
     context.user_data["last_bot_msg_id"] = msg.message_id
     return msg
 
-async def delete_system_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Удаляет сервисное сообщение о закреплении"""
-    try:
-        await update.message.delete()
-    except BadRequest:
-        pass
-
 
 # ================= СТАРТ =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    try:
-        await context.bot.unpin_all_chat_messages(chat_id=update.effective_chat.id)
-    except BadRequest:
-        pass
-
-    msg = await update.message.reply_text(
+    await update.message.reply_text(
         START_TEXT,
         reply_markup=main_menu_keyboard(),
         parse_mode="HTML"
     )
-
-    try:
-        await context.bot.pin_chat_message(
-            chat_id=update.effective_chat.id, 
-            message_id=msg.message_id, 
-            disable_notification=True
-        )
-    except BadRequest:
-        pass
 
     return STEP_PHOTO
 
@@ -453,9 +432,9 @@ async def show_confirm(chat_id, context):
 
 # Инициализируем хранилище данных в файл bot_data.pickle
 persistence = PicklePersistence(filepath="bot_data.pickle")
-app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
 
-app.add_handler(MessageHandler(filters.StatusUpdate.PINNED_MESSAGE, delete_system_message))
+# ДОБАВЛЕНО: Увеличенные таймауты, чтобы бот не отваливался на серверах Railway
+app = ApplicationBuilder().token(TOKEN).read_timeout(30).write_timeout(30).persistence(persistence).build()
 
 conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
