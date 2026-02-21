@@ -18,10 +18,11 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 
 CHANNEL_USERNAME = "@dis_bis"
-CHANNEL_LINK = "https://t.me/dis_bis"
 ADMIN_USERNAME = "@dis_business_ru"
 
 STEP_PHOTO, STEP_TEXT, STEP_CONTACT, CONFIRM = range(4)
+
+pending_posts = {}
 
 
 # ================= KEYBOARDS =================
@@ -35,8 +36,7 @@ def main_menu_keyboard():
 
 def contact_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 Использовать мое имя пользователя", callback_data="use_my_username")],
-        [InlineKeyboardButton("🏠 Вернуться в начало", callback_data="home")]
+        [InlineKeyboardButton("👤 Использовать мое имя пользователя", callback_data="use_my_username")]
     ])
 
 
@@ -52,7 +52,7 @@ def edit_keyboard():
         [InlineKeyboardButton("🖼 Изменить фотографию", callback_data="edit_photo")],
         [InlineKeyboardButton("📝 Изменить текст", callback_data="edit_text")],
         [InlineKeyboardButton("🔗 Изменить ссылку", callback_data="edit_contact")],
-        [InlineKeyboardButton("🔙 Не изменять", callback_data="cancel_edit")]
+        [InlineKeyboardButton("✅ Не изменять", callback_data="cancel_edit")]
     ])
 
 
@@ -82,24 +82,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 👋 Здравствуйте! Я бот канала <a href="https://t.me/dis_bis">MP Connect Pro</a>
 
-Хочу предложить Вам БЕСПЛАТНОЕ размещение рекламы
+🛍 Сейчас размещение БЕСПЛАТНО
 
-📌 Формируем сильную базу специалистов на старте проекта.
-
-Что вы получаете:
-✅ Размещение рекламного поста
-✅ Выход на аудиторию селлеров
-✅ Прямые заказы без посредников
-✅ Возможность долгосрочного сотрудничества
-
-🧩 Условия запуска:
-
-✔️ 1 публикация — <s>1000 ₽</s>
-✔️ Повторная публикация — <s>700 ₽</s>
-
-🛍 Сейчас — <b>БЕСПЛАТНО</b>
-
-⭐️ Нажмите кнопку ниже для создания публикации
+Нажмите кнопку ниже, чтобы создать публикацию 👇
 """
 
     await update.message.reply_text(
@@ -118,9 +103,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-
-    if data == "home":
-        return await start(update, context)
 
     if data == "create":
         await query.message.reply_text("📷 Загрузите одну фотографию")
@@ -164,6 +146,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "send":
         user_id = context.user_data["user_id"]
 
+        pending_posts[user_id] = {
+            "photo": context.user_data["photo"],
+            "text": context.user_data["text"],
+            "contact": context.user_data["contact"],
+        }
+
         await context.bot.send_photo(
             chat_id=ADMIN_USERNAME,
             photo=context.user_data["photo"],
@@ -181,14 +169,19 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("approve_"):
         user_id = int(data.split("_")[1])
+        post = pending_posts.get(user_id)
+
+        if not post:
+            await query.message.reply_text("❌ Данные публикации не найдены.")
+            return ConversationHandler.END
 
         await context.bot.send_photo(
             chat_id=CHANNEL_USERNAME,
-            photo=context.user_data["photo"],
-            caption=context.user_data["text"],
+            photo=post["photo"],
+            caption=post["text"],
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("📩 Связаться", url=context.user_data["contact"]),
+                    InlineKeyboardButton("📩 Связаться", url=post["contact"]),
                     InlineKeyboardButton("🚀 Разместить публикацию", url="https://t.me/dis_business_ru")
                 ]
             ])
@@ -196,12 +189,16 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=user_id,
-            text='✅ Ваша публикация размещена в канале <a href="https://t.me/dis_bis">MP Connect Pro</a> 🙃',
+            text='✅ Ваша публикация размещена 🙃',
             parse_mode="HTML"
         )
 
+        pending_posts.pop(user_id, None)
+
     if data.startswith("reject_"):
         user_id = int(data.split("_")[1])
+
+        pending_posts.pop(user_id, None)
 
         await context.bot.send_message(
             chat_id=user_id,
@@ -248,9 +245,7 @@ async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = format_username(update.message.text)
 
     if not link:
-        await update.message.reply_text(
-            "❌ Отправьте username в формате @username или ссылкой"
-        )
+        await update.message.reply_text("❌ Отправьте username в формате @username или ссылкой")
         return STEP_CONTACT
 
     context.user_data["contact"] = link
@@ -278,15 +273,15 @@ conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
         STEP_PHOTO: [
-            MessageHandler(filters.ALL, photo_step),
+            MessageHandler(filters.PHOTO, photo_step),
             CallbackQueryHandler(buttons),
         ],
         STEP_TEXT: [
-            MessageHandler(filters.ALL, text_step),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, text_step),
             CallbackQueryHandler(buttons),
         ],
         STEP_CONTACT: [
-            MessageHandler(filters.ALL, contact_step),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, contact_step),
             CallbackQueryHandler(buttons),
         ],
         CONFIRM: [
