@@ -17,8 +17,8 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-CHANNEL_USERNAME = "@dis_bis"  # можно оставить username канала
-ADMIN_ID = 8417362954  # твой реальный user_id
+CHANNEL_USERNAME = "@dis_bis"
+ADMIN_ID = 8417362954
 
 STEP_PHOTO, STEP_TEXT, STEP_CONTACT, CONFIRM = range(4)
 
@@ -29,7 +29,7 @@ pending_posts = {}
 
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 Создать публикацию", callback_data="create")],
+        [InlineKeyboardButton("📝 СОЗДАТЬ ПУБЛИКАЦИЮ", callback_data="create")],
         [InlineKeyboardButton("📩 Связаться с администратором", url="https://t.me/dis_business_ru")]
     ])
 
@@ -79,25 +79,15 @@ def format_username(text: str):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    text = """
-👋 Здравствуйте! Я бот канала <a href="https://t.me/dis_bis">MP Connect Pro</a>
-
-🛍 Сейчас размещение <b>БЕСПЛАТНО</b>
-
-Нажмите кнопку ниже, чтобы создать публикацию 👇
-"""
-
     await update.message.reply_text(
-        text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
+        "👋 Добро пожаловать!\n\nНажмите кнопку ниже, чтобы создать публикацию 👇",
         reply_markup=main_menu_keyboard()
     )
 
     return STEP_PHOTO
 
 
-# ================= BUTTONS =================
+# ================= USER FLOW =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -105,13 +95,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "create":
-        await query.message.reply_text("📷 Загрузите одну фотографию")
+        await query.message.reply_text("📷 Загрузите фотографию")
         return STEP_PHOTO
 
     if data == "use_my_username":
         username = update.effective_user.username
         if not username:
-            await query.message.reply_text("❌ У вас не установлен username в Telegram.")
+            await query.message.reply_text("❌ У вас нет username в Telegram.")
             return STEP_CONTACT
 
         context.user_data["contact"] = f"https://t.me/{username}"
@@ -164,16 +154,26 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-        await query.message.reply_text("🤝 Публикация отправлена на модерацию")
+        await query.message.reply_text("🤝 Отправлено на модерацию")
         return ConversationHandler.END
+
+    return CONFIRM
+
+
+# ================= ADMIN HANDLER =================
+
+async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
 
     if data.startswith("approve_"):
         user_id = int(data.split("_")[1])
         post = pending_posts.get(user_id)
 
         if not post:
-            await query.message.reply_text("❌ Данные публикации не найдены.")
-            return ConversationHandler.END
+            await query.message.reply_text("❌ Публикация не найдена.")
+            return
 
         await context.bot.send_photo(
             chat_id=CHANNEL_USERNAME,
@@ -182,39 +182,34 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("📩 Связаться", url=post["contact"]),
-                    InlineKeyboardButton("🚀 Разместить публикацию", url="https://t.me/dis_business_ru")
+                    InlineKeyboardButton("🚀 Разместить рекламу", url="https://t.me/dis_business_ru")
                 ]
             ])
         )
 
         await context.bot.send_message(
             chat_id=user_id,
-            text='✅ Ваша публикация размещена 🙃',
-            parse_mode="HTML"
+            text="✅ Ваша публикация размещена!"
         )
 
         pending_posts.pop(user_id, None)
+        await query.message.edit_reply_markup(reply_markup=None)
 
-    if data.startswith("reject_"):
+    elif data.startswith("reject_"):
         user_id = int(data.split("_")[1])
-
-        pending_posts.pop(user_id, None)
 
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Публикация не прошла модерацию, отправьте заново"
+            text="❌ Публикация не прошла модерацию."
         )
 
-    return ConversationHandler.END
+        pending_posts.pop(user_id, None)
+        await query.message.edit_reply_markup(reply_markup=None)
 
 
 # ================= STEPS =================
 
 async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.photo:
-        await update.message.reply_text("❗ Пожалуйста, загрузите фотографию")
-        return STEP_PHOTO
-
     context.user_data["photo"] = update.message.photo[-1].file_id
     context.user_data["user_id"] = update.effective_user.id
 
@@ -227,17 +222,13 @@ async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.text:
-        await update.message.reply_text("❗ Пожалуйста, отправьте текст")
-        return STEP_TEXT
-
     context.user_data["text"] = update.message.text
 
     if context.user_data.get("editing") == "text":
         context.user_data.pop("editing")
         return await show_confirm(update.message, context)
 
-    await update.message.reply_text("🔗 Отправьте username Telegram", reply_markup=contact_keyboard())
+    await update.message.reply_text("🔗 Отправьте username", reply_markup=contact_keyboard())
     return STEP_CONTACT
 
 
@@ -245,7 +236,7 @@ async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = format_username(update.message.text)
 
     if not link:
-        await update.message.reply_text("❌ Отправьте username в формате @username или ссылкой")
+        await update.message.reply_text("❌ Неверный username.")
         return STEP_CONTACT
 
     context.user_data["contact"] = link
@@ -259,7 +250,7 @@ async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_confirm(message, context):
     await message.reply_text(
-        "✅ Готово. Подтвердите отправку:",
+        "✅ Подтвердите отправку:",
         reply_markup=confirm_keyboard()
     )
     return CONFIRM
@@ -292,6 +283,9 @@ conv = ConversationHandler(
 )
 
 app.add_handler(conv)
+
+# отдельный обработчик для админских кнопок
+app.add_handler(CallbackQueryHandler(admin_actions, pattern="^(approve_|reject_)"))
 
 if __name__ == "__main__":
     app.run_polling()
