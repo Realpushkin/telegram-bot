@@ -17,8 +17,8 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-CHANNEL_USERNAME = "@dis_bis"
-ADMIN_USERNAME = "@dis_business_ru"
+CHANNEL_USERNAME = "@dis_bis"  # можно оставить username канала
+ADMIN_ID = 8417362954  # твой реальный user_id
 
 STEP_PHOTO, STEP_TEXT, STEP_CONTACT, CONFIRM = range(4)
 
@@ -82,7 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """
 👋 Здравствуйте! Я бот канала <a href="https://t.me/dis_bis">MP Connect Pro</a>
 
-🛍 Сейчас размещение БЕСПЛАТНО
+🛍 Сейчас размещение <b>БЕСПЛАТНО</b>
 
 Нажмите кнопку ниже, чтобы создать публикацию 👇
 """
@@ -153,7 +153,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         await context.bot.send_photo(
-            chat_id=ADMIN_USERNAME,
+            chat_id=ADMIN_ID,
             photo=context.user_data["photo"],
             caption=context.user_data["text"],
             reply_markup=InlineKeyboardMarkup([
