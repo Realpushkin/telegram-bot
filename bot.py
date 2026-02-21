@@ -58,6 +58,25 @@ def edit_keyboard():
 
 # ================= HELPERS =================
 
+async def send_and_replace(message, text=None, photo=None, reply_markup=None, parse_mode=None):
+    chat_id = message.chat_id
+    last_id = message.bot_data.get(f"last_msg_{chat_id}")
+
+    if last_id:
+        try:
+            await message.bot.delete_message(chat_id, last_id)
+        except:
+            pass
+
+    if photo:
+        sent = await message.bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    else:
+        sent = await message.bot.send_message(chat_id, text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+    message.bot_data[f"last_msg_{chat_id}"] = sent.message_id
+    return sent
+
+
 def format_username(text: str):
     text = text.strip()
 
@@ -79,15 +98,40 @@ def format_username(text: str):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    await update.message.reply_text(
-        "👋 Добро пожаловать!\n\nНажмите кнопку ниже, чтобы создать публикацию 👇",
-        reply_markup=main_menu_keyboard()
+    first_text = (
+        "👋 Здравствуйте! Я бот канала MP Connect Pro\n\n"
+        "Хочу предложить Вам БЕСПЛАТНОЕ размещение рекламы\n\n"
+        "Вы ищете клиентов.\n"
+        "Селлеры ищут сильных специалистов.\n\n"
+        "Мы запускаем Telegram-канал MP Connect PRO — площадку, где собираются селлеры, поставщики, дизайнеры и менеджеры маркетплейсов.\n\n"
+        "📌 Формируем сильную базу специалистов на старте проекта.\n\n"
+        "Что вы получаете:\n"
+        "✅ Размещение рекламного поста\n"
+        "✅ Выход на аудиторию селлеров\n"
+        "✅ Прямые заказы без посредников\n"
+        "✅ Возможность долгосрочного сотрудничества\n\n"
+        "🧩 Это старт проекта, поэтому для первых специалистов условия такие:\n\n"
+        "✔️ 1 публикация — <s>1000 ₽</s>\n"
+        "✔️ Повторная публикация через 14 дней — <s>700 ₽</s>\n\n"
+        "🛍 Сейчас — БЕСПЛАТНО для первых участников запуска.\n\n"
+        "⭐️ Если предложение вас заинтересовало, отправьте свою публикацию👇"
     )
+
+    sent = await update.message.reply_text(
+        first_text,
+        reply_markup=main_menu_keyboard(),
+        parse_mode="HTML"
+    )
+
+    try:
+        await sent.pin(disable_notification=True)
+    except:
+        pass
 
     return STEP_PHOTO
 
 
-# ================= USER FLOW =================
+# ================= BUTTONS =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -95,22 +139,23 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "create":
-        await query.message.reply_text("📷 Загрузите фотографию")
+        await send_and_replace(query.message, "🖼️ Отправьте ОДНО изображение для публикации")
         return STEP_PHOTO
 
     if data == "use_my_username":
         username = update.effective_user.username
         if not username:
-            await query.message.reply_text("❌ У вас нет username в Telegram.")
+            await send_and_replace(query.message, "❌ У вас нет username в Telegram.")
             return STEP_CONTACT
 
         context.user_data["contact"] = f"https://t.me/{username}"
         return await show_confirm(query.message, context)
 
     if data == "edit":
-        await query.message.reply_photo(
+        await send_and_replace(
+            query.message,
+            text=context.user_data["text"],
             photo=context.user_data["photo"],
-            caption=context.user_data["text"],
             reply_markup=edit_keyboard()
         )
         return CONFIRM
@@ -120,17 +165,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "edit_photo":
         context.user_data["editing"] = "photo"
-        await query.message.reply_text("🖼 Отправьте новую фотографию")
+        await send_and_replace(query.message, "🖼️ Отправьте ОДНО изображение для публикации")
         return STEP_PHOTO
 
     if data == "edit_text":
         context.user_data["editing"] = "text"
-        await query.message.reply_text("📝 Отправьте новый текст")
+        await send_and_replace(query.message, "📝 Отправьте текст публикации")
         return STEP_TEXT
 
     if data == "edit_contact":
         context.user_data["editing"] = "contact"
-        await query.message.reply_text("🔗 Отправьте новый username")
+        await send_and_replace(query.message, "🔗 Отправьте имя пользователя, по которому заказчик может с Вами связаться")
         return STEP_CONTACT
 
     if data == "send":
@@ -154,13 +199,81 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-        await query.message.reply_text("🤝 Отправлено на модерацию")
+        await send_and_replace(query.message, "🤝 Отправлено на модерацию")
         return ConversationHandler.END
 
     return CONFIRM
 
 
-# ================= ADMIN HANDLER =================
+# ================= STEPS =================
+
+async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message.photo:
+        await send_and_replace(update.message, "❌ На данном шаге загрузите ОДНО изображение")
+        return STEP_PHOTO
+
+    context.user_data["photo"] = update.message.photo[0].file_id
+    context.user_data["user_id"] = update.effective_user.id
+
+    if context.user_data.get("editing") == "photo":
+        context.user_data.pop("editing")
+        return await show_confirm(update.message, context)
+
+    await send_and_replace(update.message, "📝 Отправьте текст публикации")
+    return STEP_TEXT
+
+
+async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.message.photo:
+        await send_and_replace(update.message, "❌ На данном шаге загрузите ТОЛЬКО текст публикации")
+        return STEP_TEXT
+
+    context.user_data["text"] = update.message.text
+
+    if context.user_data.get("editing") == "text":
+        context.user_data.pop("editing")
+        return await show_confirm(update.message, context)
+
+    await send_and_replace(
+        update.message,
+        "🔗 Отправьте имя пользователя, по которому заказчик может с Вами связаться",
+        reply_markup=contact_keyboard()
+    )
+    return STEP_CONTACT
+
+
+async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.message.photo:
+        await send_and_replace(update.message, "❌ На данном шаге загрузите ТОЛЬКО ссылку на Телеграм для связи")
+        return STEP_CONTACT
+
+    link = format_username(update.message.text)
+
+    if not link:
+        await send_and_replace(update.message, "❌ Неверный username.")
+        return STEP_CONTACT
+
+    context.user_data["contact"] = link
+
+    if context.user_data.get("editing") == "contact":
+        context.user_data.pop("editing")
+
+    return await show_confirm(update.message, context)
+
+
+async def show_confirm(message, context):
+    await send_and_replace(
+        message,
+        "✅ Подтвердите отправку:",
+        reply_markup=confirm_keyboard()
+    )
+    return CONFIRM
+
+
+# ================= ADMIN =================
 
 async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -172,7 +285,6 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         post = pending_posts.get(user_id)
 
         if not post:
-            await query.message.reply_text("❌ Публикация не найдена.")
             return
 
         await context.bot.send_photo(
@@ -187,73 +299,15 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="✅ Ваша публикация размещена!"
-        )
-
+        await context.bot.send_message(user_id, "✅ Ваша публикация размещена!")
         pending_posts.pop(user_id, None)
         await query.message.edit_reply_markup(reply_markup=None)
 
     elif data.startswith("reject_"):
         user_id = int(data.split("_")[1])
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="❌ Публикация не прошла модерацию."
-        )
-
+        await context.bot.send_message(user_id, "❌ Публикация не прошла модерацию.")
         pending_posts.pop(user_id, None)
         await query.message.edit_reply_markup(reply_markup=None)
-
-
-# ================= STEPS =================
-
-async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["photo"] = update.message.photo[-1].file_id
-    context.user_data["user_id"] = update.effective_user.id
-
-    if context.user_data.get("editing") == "photo":
-        context.user_data.pop("editing")
-        return await show_confirm(update.message, context)
-
-    await update.message.reply_text("📝 Отправьте текст публикации")
-    return STEP_TEXT
-
-
-async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["text"] = update.message.text
-
-    if context.user_data.get("editing") == "text":
-        context.user_data.pop("editing")
-        return await show_confirm(update.message, context)
-
-    await update.message.reply_text("🔗 Отправьте username", reply_markup=contact_keyboard())
-    return STEP_CONTACT
-
-
-async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    link = format_username(update.message.text)
-
-    if not link:
-        await update.message.reply_text("❌ Неверный username.")
-        return STEP_CONTACT
-
-    context.user_data["contact"] = link
-
-    if context.user_data.get("editing") == "contact":
-        context.user_data.pop("editing")
-        return await show_confirm(update.message, context)
-
-    return await show_confirm(update.message, context)
-
-
-async def show_confirm(message, context):
-    await message.reply_text(
-        "✅ Подтвердите отправку:",
-        reply_markup=confirm_keyboard()
-    )
-    return CONFIRM
 
 
 # ================= RUN =================
@@ -264,15 +318,15 @@ conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
         STEP_PHOTO: [
-            MessageHandler(filters.PHOTO, photo_step),
+            MessageHandler(filters.ALL & ~filters.COMMAND, photo_step),
             CallbackQueryHandler(buttons),
         ],
         STEP_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, text_step),
+            MessageHandler(filters.ALL & ~filters.COMMAND, text_step),
             CallbackQueryHandler(buttons),
         ],
         STEP_CONTACT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, contact_step),
+            MessageHandler(filters.ALL & ~filters.COMMAND, contact_step),
             CallbackQueryHandler(buttons),
         ],
         CONFIRM: [
@@ -283,8 +337,6 @@ conv = ConversationHandler(
 )
 
 app.add_handler(conv)
-
-# отдельный обработчик для админских кнопок
 app.add_handler(CallbackQueryHandler(admin_actions, pattern="^(approve_|reject_)"))
 
 if __name__ == "__main__":
