@@ -203,17 +203,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "edit_photo":
         context.user_data["editing"] = "photo"
-        await send_bot_message(chat_id, "🖼️ Отправьте ОДНО изображение для публикации", context)
+        await send_bot_message(chat_id, "🖼️ Шаг 1: Отправьте ОДНО изображение для публикации", context)
         return STEP_PHOTO
 
     if data == "edit_text":
         context.user_data["editing"] = "text"
-        await send_bot_message(chat_id, "📝 Отправьте текст публикации", context)
+        await send_bot_message(chat_id, "📝 Шаг 2: Отправьте текст публикации", context)
         return STEP_TEXT
 
     if data == "edit_contact":
         context.user_data["editing"] = "contact"
-        await send_bot_message(chat_id, "🔗 Отправьте имя пользователя, по которому заказчик может с Вами связаться", context)
+        await send_bot_message(chat_id, "🔗 Шаг 3: Отправьте имя пользователя, по которому заказчик может с Вами связаться", context)
         return STEP_CONTACT
 
     if data == "send":
@@ -264,8 +264,8 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=post["text"],
             reply_markup=InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("📩 Связаться", url=post["contact"]),
-                    InlineKeyboardButton("🚀 Разместить рекламу", url="https://t.me/dis_business_ru")
+                    InlineKeyboardButton("Связаться", url=post["contact"]),
+                    InlineKeyboardButton("Разместить рекламу", url="https://t.me/dis_business_ru")
                 ]
             ])
         )
