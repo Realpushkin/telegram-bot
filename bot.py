@@ -164,7 +164,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_bot_message(chat_id, cooldown_msg, context)
             return ConversationHandler.END
 
-        await send_bot_message(chat_id, "🖼️ Отправьте ОДНО изображение для публикации", context)
+        await send_bot_message(chat_id, "🖼️ Шаг 1. Отправьте ОДНО изображение для публикации", context)
         return STEP_PHOTO
 
     if data == "use_my_username":
@@ -203,17 +203,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "edit_photo":
         context.user_data["editing"] = "photo"
-        await send_bot_message(chat_id, "🖼️ Шаг 1: Отправьте ОДНО изображение для публикации", context)
+        await send_bot_message(chat_id, "🖼️ Отправьте ОДНО изображение для публикации", context)
         return STEP_PHOTO
 
     if data == "edit_text":
         context.user_data["editing"] = "text"
-        await send_bot_message(chat_id, "📝 Шаг 2: Отправьте текст публикации", context)
+        await send_bot_message(chat_id, "📝 Отправьте текст публикации", context)
         return STEP_TEXT
 
     if data == "edit_contact":
         context.user_data["editing"] = "contact"
-        await send_bot_message(chat_id, "🔗 Шаг 3: Отправьте имя пользователя, по которому заказчик может с Вами связаться", context)
+        await send_bot_message(chat_id, "🔗 Отправьте имя пользователя, по которому заказчик может с Вами связаться", context)
         return STEP_CONTACT
 
     if data == "send":
@@ -274,7 +274,7 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("Связаться", url=post["contact"]),
-                    InlineKeyboardButton("Разместить рекламу", url=BOT_LINK)
+                    InlineKeyboardButton("Разместить публикацию", url=BOT_LINK)
                 ]
             ])
         )
@@ -328,7 +328,7 @@ async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("editing")
         return await show_confirm(chat_id, context)
 
-    await send_bot_message(chat_id, "📝 Отправьте текст публикации", context)
+    await send_bot_message(chat_id, "📝 Шаг 2. Отправьте текст публикации", context)
     return STEP_TEXT
 
 
@@ -376,7 +376,7 @@ async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await send_bot_message(
         update.effective_chat.id, 
-        "🔗 Отправьте имя пользователя, по которому заказчик может с Вами связаться", 
+        "🔗 Шаг 3. Отправьте имя пользователя, по которому заказчик может с Вами связаться", 
         context, 
         reply_markup=contact_keyboard()
     )
