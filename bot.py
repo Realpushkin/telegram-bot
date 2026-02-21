@@ -1,5 +1,7 @@
 import os
 import re
+import logging
+from datetime import datetime, timedelta
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -13,16 +15,24 @@ from telegram.ext import (
     ConversationHandler,
     ContextTypes,
     filters,
+    PicklePersistence
 )
+from telegram.error import BadRequest
 
+# ================= ЛОГИРОВАНИЕ =================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ================= НАСТРОЙКИ =================
 TOKEN = os.getenv("BOT_TOKEN")
-
 CHANNEL_USERNAME = "@dis_bis"
 ADMIN_ID = 8417362954
+BOT_LINK = "https://t.me/Kanal_mp_bot" # Жестко заданная ссылка на вашего бота
 
 STEP_PHOTO, STEP_TEXT, STEP_CONTACT, CONFIRM = range(4)
-
-pending_posts = {}
 
 START_TEXT = """👋 Здравствуйте! Я бот канала MP Connect Pro
 
@@ -50,7 +60,7 @@ START_TEXT = """👋 Здравствуйте! Я бот канала MP Connect
 
 ⭐️ Если предложение вас заинтересовало, отправьте свою публикацию👇"""
 
-# ================= KEYBOARDS =================
+# ================= КЛАВИАТУРЫ =================
 
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
@@ -58,19 +68,16 @@ def main_menu_keyboard():
         [InlineKeyboardButton("📩 Связаться с администратором", url="https://t.me/dis_business_ru")]
     ])
 
-
 def contact_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("👤 Использовать мое имя пользователя", callback_data="use_my_username")]
     ])
-
 
 def confirm_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 Отправить публикацию", callback_data="send")],
         [InlineKeyboardButton("✏️ Редактировать", callback_data="edit")]
     ])
-
 
 def edit_keyboard():
     return InlineKeyboardMarkup([
@@ -80,8 +87,7 @@ def edit_keyboard():
         [InlineKeyboardButton("✅ Не изменять", callback_data="cancel_edit")]
     ])
 
-
-# ================= HELPERS =================
+# ================= ХЕЛПЕРЫ =================
 
 def format_username(text: str):
     text = text.strip()
@@ -98,14 +104,26 @@ def format_username(text: str):
 
     return None
 
+def check_cooldown(user_id, context):
+    """Проверяет, прошло ли 7 дней с момента последней публикации (данные берутся из БД)"""
+    last_published_time = context.bot_data.setdefault("last_published_time", {})
+    if user_id in last_published_time:
+        time_since = datetime.now() - last_published_time[user_id]
+        if time_since < timedelta(days=7):
+            time_left = timedelta(days=7) - time_since
+            days = time_left.days
+            hours = time_left.seconds // 3600
+            return f"⏳ Вы уже публиковали пост. Следующая публикация будет доступна через {days} дн. {hours} ч."
+    return None
+
 async def send_bot_message(chat_id, text, context, reply_markup=None, parse_mode=None):
     """Удаляет старое сообщение бота (кроме стартового) и отправляет новое"""
     old_msg_id = context.user_data.get("last_bot_msg_id")
     if old_msg_id:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=old_msg_id)
-        except Exception:
-            pass
+        except BadRequest:
+            pass # Сообщение уже удалено, игнорируем
             
     msg = await context.bot.send_message(
         chat_id=chat_id, 
@@ -120,19 +138,18 @@ async def delete_system_message(update: Update, context: ContextTypes.DEFAULT_TY
     """Удаляет сервисное сообщение о закреплении"""
     try:
         await update.message.delete()
-    except Exception:
+    except BadRequest:
         pass
 
 
-# ================= START =================
+# ================= СТАРТ =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    # Открепляем все старые стартовые сообщения, если пользователь нажал /start снова
     try:
         await context.bot.unpin_all_chat_messages(chat_id=update.effective_chat.id)
-    except Exception:
+    except BadRequest:
         pass
 
     msg = await update.message.reply_text(
@@ -141,28 +158,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-    # Закрепляем стартовое сообщение (оно никогда не удалится из-за логики send_bot_message)
     try:
         await context.bot.pin_chat_message(
             chat_id=update.effective_chat.id, 
             message_id=msg.message_id, 
             disable_notification=True
         )
-    except Exception:
+    except BadRequest:
         pass
 
     return STEP_PHOTO
 
 
-# ================= USER FLOW =================
+# ================= ЛОГИКА ПОЛЬЗОВАТЕЛЯ =================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     chat_id = query.message.chat_id
+    user_id = update.effective_user.id
 
     if data == "create":
+        cooldown_msg = check_cooldown(user_id, context)
+        if cooldown_msg:
+            await send_bot_message(chat_id, cooldown_msg, context)
+            return ConversationHandler.END
+
         await send_bot_message(chat_id, "🖼️ Отправьте ОДНО изображение для публикации", context)
         return STEP_PHOTO
 
@@ -181,12 +203,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await show_confirm(chat_id, context)
 
     if data == "edit":
-        # Удаляем предыдущее сообщение с меню
         old_msg_id = context.user_data.get("last_bot_msg_id")
         if old_msg_id:
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=old_msg_id)
-            except Exception: 
+            except BadRequest: 
                 pass
                 
         msg = await context.bot.send_photo(
@@ -217,8 +238,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return STEP_CONTACT
 
     if data == "send":
-        user_id = context.user_data["user_id"]
-
+        # Сохраняем публикацию в постоянное хранилище
+        pending_posts = context.bot_data.setdefault("pending_posts", {})
         pending_posts[user_id] = {
             "photo": context.user_data["photo"],
             "text": context.user_data["text"],
@@ -243,12 +264,21 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONFIRM
 
 
-# ================= ADMIN HANDLER =================
+# ================= ПАНЕЛЬ АДМИНА =================
 
 async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    
+    # ЗАЩИТА: Проверяем, что кнопку нажал именно админ
+    if update.effective_user.id != ADMIN_ID:
+        await query.answer("⛔ У вас нет прав на это действие.", show_alert=True)
+        return
+
     await query.answer()
     data = query.data
+
+    pending_posts = context.bot_data.setdefault("pending_posts", {})
+    last_published_time = context.bot_data.setdefault("last_published_time", {})
 
     if data.startswith("approve_"):
         user_id = int(data.split("_")[1])
@@ -265,7 +295,7 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("Связаться", url=post["contact"]),
-                    InlineKeyboardButton("Разместить рекламу", url="https://t.me/dis_business_ru")
+                    InlineKeyboardButton("Разместить рекламу", url=BOT_LINK)
                 ]
             ])
         )
@@ -275,6 +305,8 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="✅ Ваша публикация размещена!"
         )
 
+        # Фиксируем время успешной публикации и сохраняем
+        last_published_time[user_id] = datetime.now()
         pending_posts.pop(user_id, None)
         await query.message.edit_reply_markup(reply_markup=None)
 
@@ -283,51 +315,54 @@ async def admin_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Публикация не прошла модерацию."
+            text="❌ Публикация не прошла модерацию. Вы можете отправить новую прямо сейчас."
         )
 
         pending_posts.pop(user_id, None)
         await query.message.edit_reply_markup(reply_markup=None)
 
 
-# ================= STEPS =================
+# ================= ШАГИ СБОРА ДАННЫХ =================
 
 async def photo_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    cooldown_msg = check_cooldown(user_id, context)
+    if cooldown_msg:
+        await send_bot_message(chat_id, cooldown_msg, context)
+        return ConversationHandler.END
+
     if not update.message.photo:
-        await send_bot_message(update.effective_chat.id, "На данном шаге загрузите ОДНО изображение", context)
+        await send_bot_message(chat_id, "На данном шаге загрузите ОДНО изображение", context)
         return STEP_PHOTO
 
-    # Если отправлено несколько фото (медиагруппа), берем первое, остальные тихо игнорируем
     if update.message.media_group_id:
         if update.message.media_group_id == context.user_data.get("last_media_group_id"):
             return STEP_PHOTO
         context.user_data["last_media_group_id"] = update.message.media_group_id
 
-    # Даже если отправлен текст с фото, мы берем только файл фото ([-1] это макс. разрешение)
     context.user_data["photo"] = update.message.photo[-1].file_id
-    context.user_data["user_id"] = update.effective_user.id
+    context.user_data["user_id"] = user_id
 
     if context.user_data.get("editing") == "photo":
         context.user_data.pop("editing")
-        return await show_confirm(update.effective_chat.id, context)
+        return await show_confirm(chat_id, context)
 
-    await send_bot_message(update.effective_chat.id, "📝 Отправьте текст публикации", context)
+    await send_bot_message(chat_id, "📝 Отправьте текст публикации", context)
     return STEP_TEXT
 
 
 async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Игнорируем остатки медиагруппы (доп. фото) с предыдущего шага, чтобы не сыпать ошибки
     if update.message.media_group_id and update.message.media_group_id == context.user_data.get("last_media_group_id"):
         return STEP_TEXT
 
     if update.message.photo:
         if update.message.caption:
-            # Прислали фото и текст — берем только текст
             text = update.message.caption
             if update.message.media_group_id:
                 context.user_data["text_media_group_id"] = update.message.media_group_id
         else:
-            # Прислали просто фото
             if update.message.media_group_id:
                 if update.message.media_group_id == context.user_data.get("text_media_group_id"):
                     return STEP_TEXT
@@ -338,12 +373,20 @@ async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.message.text:
         text = update.message.text
     else:
-        # Любые другие форматы (файлы, видео и тд)
         await send_bot_message(update.effective_chat.id, "На данном шаге загрузите ТОЛЬКО текст публикации", context)
         return STEP_TEXT
 
     if not text:
         await send_bot_message(update.effective_chat.id, "На данном шаге загрузите ТОЛЬКО текст публикации", context)
+        return STEP_TEXT
+
+    # ЗАЩИТА: Проверка лимита символов в Telegram (1024 для подписи к фото)
+    if len(text) > 1024:
+        await send_bot_message(
+            update.effective_chat.id, 
+            f"❌ Текст слишком длинный ({len(text)} из 1024 символов).\nПожалуйста, сократите его и отправьте заново.", 
+            context
+        )
         return STEP_TEXT
 
     context.user_data["text"] = text
@@ -363,7 +406,6 @@ async def text_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo or not update.message.text:
-        # Игнорируем остатки медиагрупп, чтобы не дублировать ошибку
         if update.message.media_group_id:
             if update.message.media_group_id == context.user_data.get("contact_media_group_id"):
                 return STEP_CONTACT
@@ -407,11 +449,12 @@ async def show_confirm(chat_id, context):
     return CONFIRM
 
 
-# ================= RUN =================
+# ================= ЗАПУСК =================
 
-app = ApplicationBuilder().token(TOKEN).build()
+# Инициализируем хранилище данных в файл bot_data.pickle
+persistence = PicklePersistence(filepath="bot_data.pickle")
+app = ApplicationBuilder().token(TOKEN).persistence(persistence).build()
 
-# Обработчик, который удаляет системное сообщение "Бот закрепил сообщение"
 app.add_handler(MessageHandler(filters.StatusUpdate.PINNED_MESSAGE, delete_system_message))
 
 conv = ConversationHandler(
@@ -434,11 +477,11 @@ conv = ConversationHandler(
         ],
     },
     fallbacks=[CommandHandler("start", start)],
+    persistent=True, # Включаем сохранение состояний между перезапусками
+    name="post_conversation"
 )
 
 app.add_handler(conv)
-
-# отдельный обработчик для админских кнопок
 app.add_handler(CallbackQueryHandler(admin_actions, pattern="^(approve_|reject_)"))
 
 if __name__ == "__main__":
